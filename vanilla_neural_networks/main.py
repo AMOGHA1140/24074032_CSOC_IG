@@ -2,6 +2,21 @@ import typing
 import numpy as np
 
 
+def sparse_categorical_cross_entropy_loss(y_predicted, y_true):
+    assert y_predicted.shape == y_true.shape
+
+    n, m = y_true.shape #the output units, batch_size respectively
+
+    return -np.sum(y_true * np.log(y_predicted+1e-9))/m
+
+
+def softmax(z):
+
+    temp = np.exp(z-np.max(z, axis=0, keepdims=True))
+    return temp/np.sum(temp, axis=0, keepdims=True) #sum along columns
+    #assuming z.shape = (units, batch_size)
+
+
 def relu(x):
     return np.maximum(0, x)
 
@@ -10,13 +25,25 @@ def sigmoid(x):
     return 1/(1+np.exp(-x))
 
 def binary_cross_entropy_loss(y_predicted, y_true):
-    return -np.mean((1-y_true)*(np.log(1-y_predicted)) + y_true*np.log(y_predicted))
+    return -np.mean((1-y_true)*(np.log(1-y_predicted+1e-9)) + y_true*np.log(y_predicted+1e-9))
 
 def mean_squared_loss(y_predicted, y_true):
     return np.mean(np.square(y_predicted-y_true))
 
 def accuracy(y_predicted, y_true):
-    return np.mean(y_predicted==y_true)
+
+    
+    if (y_predicted.shape!=y_true.shape):
+        raise IndexError(f"y_predicted.shape: {y_predicted.shape}, y_true: {y_true.shape}")
+    
+    # if (y_true.shape[1]==1):
+    #     return np.mean(y_true==y_predicted, axis=1)
+    
+    return np.mean(np.all(y_true==y_predicted, axis=1))
+    
+
+        
+
 
 #This was just defined because such a layer exists in tensorflow too
 #currently there is no use for this in my codebase
@@ -51,8 +78,8 @@ class Dense:
         # Used He/Xavier initialization (I don't remember the exact name)
         # Just to converge faster. could also give option for kernel_initializer
         # like TF does, but I believe that much customization is not need
-        self.W = np.random.normal(0, 2/(input_shape+self.units), (self.units, input_shape))
-        self.b = 0
+        self.W = np.random.normal(0, np.sqrt(2/(input_shape+self.units)), (self.units, input_shape))
+        self.b = np.zeros((self.units, 1))
         self.built=True
 
     def forward_prop(self, a_prev):
@@ -63,6 +90,8 @@ class Dense:
             self.A = relu(z)
         elif self.activation=='sigmoid':
             self.A = sigmoid(z)
+        elif self.activation=='softmax':
+            self.A = softmax(z)        
         else:
             raise NotImplementedError("Only relu and sigmoid activation supported")    
         
@@ -80,8 +109,10 @@ class Dense:
         if (self.activation=='relu'):
             dZ = dA * (self.Z>=0)
         elif (self.activation=='sigmoid'):
-            A = sigmoid(self.Z)
-            dZ = dA * A*(1-A)
+            # A = sigmoid(self.Z)
+            dZ = dA * self.A*(1-self.A)
+        elif self.activation=='softmax':
+            dZ = dA  #assumes that the dA = A-Y is given
         else:
             raise Exception(f"Activation not supported: {self.activation}")
         
@@ -139,10 +170,10 @@ class Sequential:
         if (X.shape[0]!=y.shape[0]):
             raise ValueError(f"Training rows and labelled rows not same. X.shape[0]={X.shape[0]}, y.shape={y.shape}")
 
-        #there is only 1 output for each input, assumnig binary classficiation type
+        #there is only 1 output for each input, assuming binary classficiation type
         # this has to be removed (or replaced by seperate validation if needed) when 
         # performing regression task, or multi-label or multi-class classficiation
-        if (y.shape[1]!=1):
+        if (y.shape[1]!=1 and self.loss=='binary_crossentropy'):
             raise ValueError(f"expected y.shape[1] to be 1 but found { y.shape[1]}")
         
         # if the weights are not initialized, this initializes them
@@ -163,24 +194,40 @@ class Sequential:
             for layer in self.layers:
                 A = layer.forward_prop(A)
 
-            accuracy_ = accuracy((A>0.5), y)
+
+            temp = np.zeros_like(A)
+            temp[np.argmax(A, axis=0), np.arange(0, A.shape[1])] = True
+
+            accuracy_ = accuracy((temp).T, y.T)
             
             if self.loss == "binary_cross_entropy":
                 loss = binary_cross_entropy_loss(A, y)
             elif (self.loss == "mse") or (self.loss == 'mean_squared_error'):
                 loss = mean_squared_loss(A, y)
+            elif (self.loss=="sparse_categorical_cross_entropy"):
+                loss = sparse_categorical_cross_entropy_loss(A, y)
+            else:
+                raise NotImplementedError(f"Didn't implement loss type: {self.loss}")
 
-            if (i%10==0):
-                print(f"Epoch: {i+1}, Accuracy: {accuracy_}, {self.loss} loss: {loss}")
+            # if (i%10==0):
+            print(f"Epoch: {i+1}, Accuracy: {accuracy_}, {self.loss} loss: {loss}")
             
 
 
 
             if (self.loss == 'binary_cross_entropy'):
-                dA = (A-y)/A/(1-A)
+                dA = (A-y)/(A+1e-9)/(1-A+1e-9)
             elif (self.loss == "mse") or (self.loss == 'mean_squared_error'):
+
+
+
                 raise NotImplementedError
                 dA = 0 
+            elif (self.loss=='sparse_categorical_cross_entropy'):
+                dA = A-y
+            else:
+                raise NotImplementedError(f"{self.loss} is not implemented yet")
+            
 
             for i in range(len(self.layers)):
                 dA = self.layers[len(self.layers)-i-1].back_prop(dA)
@@ -194,7 +241,7 @@ class Sequential:
         for layer in self.layers:
             X = layer.forward_prop(X)
 
-        return X
+        return X.T
 
 
         
