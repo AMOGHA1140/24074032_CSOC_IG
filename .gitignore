@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 .env
 .ipynb_checkpoints/
+vanilla_neural_networks/Artificial_Neural_Networks.pdf
+*.zip
