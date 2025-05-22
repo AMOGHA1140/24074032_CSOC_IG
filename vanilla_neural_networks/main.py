@@ -1,10 +1,19 @@
-from multiprocessing import Value
+import typing
 import numpy as np
 
 
 def sigmoid(x):
 
     return 1/(1+np.exp(-x))
+
+def binary_cross_entropy_loss(y_predicted, y_true):
+    return -np.mean((1-y_true)*(np.log(1-y_predicted)) + y_true*np.log(y_predicted))
+
+def mean_squared_loss(y_predicted, y_true):
+    return np.mean(np.square(y_predicted-y_true))
+
+def accuracy(y_predicted, y_true):
+    return np.mean(y_predicted==y_true)
 
 class InputLayer:
 
@@ -91,16 +100,16 @@ class Dense:
 
 class Sequential:
 
-    def __init__(self, layers):
+    def __init__(self, layers:typing.List[typing.Union[Dense]]):
         self.layers=layers
 
-    def compile(self, learning_rate=1e-3, loss='mse'):
-        self.learning_rate = learning_rate
+    def compile(self, loss='mse'):
+        # self.learning_rate = learning_rate
         # self.batch_size = batch_size
         # self.epochs=epochs
         self.loss = loss
     
-    def fit(self, X, y, batch_size=32, epochs=10):
+    def fit(self, X, y, batch_size=32, epochs=10, learning_rate=1e-3):
 
         if (X.shape[0]!=y.shape[0]):
             raise ValueError(f"Training rows and labelled rows not same. X.shape[0]={X.shape[0]}, y.shape={y.shape}")
@@ -108,7 +117,36 @@ class Sequential:
         if (y.shape[1]!=1):
             raise ValueError(f"expected y.shape[1] to be 1 but found { y.shape[1]}")
         
+        #currently ignoring batch_size 
+
+        for i in range(epochs):
+
+            A = X
+            for layer in self.layers:
+                A = layer.forward_prop(A)
+
+            
+            
+
+
+
+            if (self.loss == 'binary_cross_entropy'):
+                dA = (A-y)/A/(1-A)
+            elif (self.loss == "mse") or (self.loss == 'mean_squared_error'):
+                raise NotImplementedError
+                dA = 0 
+
+            for i in range(len(self.layers)):
+                dA = self.layers[len(self.layers)-i-1].back_prop(dA)
+            
+            for layer in self.layers:
+                layer.W -= learning_rate*layer.dW
+                layer.b -= learning_rate*layer.db
+            
+
         
+        
+
 
 
 
