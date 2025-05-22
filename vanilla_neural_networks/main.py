@@ -2,6 +2,9 @@ import typing
 import numpy as np
 
 
+def relu(x):
+    return np.maximum(0, x)
+
 def sigmoid(x):
 
     return 1/(1+np.exp(-x))
@@ -15,6 +18,8 @@ def mean_squared_loss(y_predicted, y_true):
 def accuracy(y_predicted, y_true):
     return np.mean(y_predicted==y_true)
 
+#This was just defined because such a layer exists in tensorflow too
+#currently there is no use for this in my codebase
 class InputLayer:
 
     def __init__(self, units):
@@ -27,46 +32,49 @@ class InputLayer:
         pass
 
     def __call__(self, prev_layer):
-        
-        if not isinstance(prev_layer, Dense):
-            raise Exception("Layer has to be Dense")
-        
-        self.prev_layer = prev_layer
+        pass
 
 
 class Dense:
     
     def __init__(self, units, activation='relu'):
         
-        
+        self.built=False #this is to track that the weights are not initialized
         self.units = units
         self.activation = activation
-        self.weights = None
-        self.bias = None
+        self.W = None 
+        self.b = None
 
     def build(self, input_shape):
 
         self.input_shape = input_shape
+        # Used He/Xavier initialization (I don't remember the exact name)
+        # Just to converge faster. could also give option for kernel_initializer
+        # like TF does, but I believe that much customization is not need
         self.W = np.random.normal(0, 2/(input_shape+self.units), (self.units, input_shape))
         self.b = 0
+        self.built=True
 
     def forward_prop(self, a_prev):
 
         z = np.matmul(self.W, a_prev) + self.b
         
         if (self.activation=='relu'):
-            a = np.maximum(0, z)
-
-        self.A = a
+            self.A = relu(z)
+        elif self.activation=='sigmoid':
+            self.A = sigmoid(z)
+        else:
+            raise NotImplementedError("Only relu and sigmoid activation supported")    
+        
         self.A_prev = a_prev
         self.Z = z
         
-        return a
+        return self.A
     
     def back_prop(self, dA):
 
         if (dA.shape[0] != self.units):
-            raise Exception(f"value of dA.shape[0] not correct: expected {self.units}, found {dA.shape[0]}")
+            raise Exception(f"value of dA.shape[0] not correct: expected {self.units}, found dA.shape={dA.shape}")
         
         
         if (self.activation=='relu'):
@@ -77,11 +85,11 @@ class Dense:
         else:
             raise Exception(f"Activation not supported: {self.activation}")
         
-        self.db = np.mean(dZ, axis=1, keepdims=True)
+        self.db = np.mean(dZ, axis=1, keepdims=True) #take mean across all the batch sizes
+        #keep dims is important because dim of bias is (n, 1) not (n,)
 
         m = dA.shape[1] #batch size basically
         self.dW = np.matmul(dZ, self.A_prev.T)/m
-        # self.dZ = dZ
 
         dA_prev = np.matmul(self.W.T, dZ)
 
@@ -95,6 +103,9 @@ class Dense:
         if not isinstance(prev_layer, Dense) and not isinstance(prev_layer, InputLayer):
             raise Exception("Layer has to be Dense or Input type")
         
+        # this is currently not used anywhere throughout the code
+        # but this can be used in back/forward propagation so as to not bother making a loop,
+        # which is being currently done in .fit() function
         self.prev_layer = prev_layer
 
 
@@ -109,14 +120,41 @@ class Sequential:
         # self.epochs=epochs
         self.loss = loss
     
+    def build(self, input_size):
+        """
+        Initializes the weights and bias for each layer
+
+        input_size: the number of units in the previous layer 
+        """
+        
+        self.layers[0].build(input_size)
+        self.layers[0].built=True
+
+        for i in range(len(self.layers)-1):
+            self.layers[i+1].build(self.layers[i].units)
+            self.layers[i+1].built=True
+    
     def fit(self, X, y, batch_size=32, epochs=10, learning_rate=1e-3):
 
         if (X.shape[0]!=y.shape[0]):
             raise ValueError(f"Training rows and labelled rows not same. X.shape[0]={X.shape[0]}, y.shape={y.shape}")
 
+        #there is only 1 output for each input, assumnig binary classficiation type
+        # this has to be removed (or replaced by seperate validation if needed) when 
+        # performing regression task, or multi-label or multi-class classficiation
         if (y.shape[1]!=1):
             raise ValueError(f"expected y.shape[1] to be 1 but found { y.shape[1]}")
         
+        # if the weights are not initialized, this initializes them
+        if not self.layers[0].built:
+            self.build(X.shape[1])
+
+        # this is necessary because it is assumed that in input, each data point is arranged row-wise,
+        # like in an excel sheet. But the neural network assumes that, number of rows = number of units,
+        # and number of columns = batch_size
+        X = X.T
+        y = y.T
+
         #currently ignoring batch_size 
 
         for i in range(epochs):
@@ -125,7 +163,15 @@ class Sequential:
             for layer in self.layers:
                 A = layer.forward_prop(A)
 
+            accuracy_ = accuracy((A>0.5), y)
             
+            if self.loss == "binary_cross_entropy":
+                loss = binary_cross_entropy_loss(A, y)
+            elif (self.loss == "mse") or (self.loss == 'mean_squared_error'):
+                loss = mean_squared_loss(A, y)
+
+            if (i%10==0):
+                print(f"Epoch: {i+1}, Accuracy: {accuracy_}, {self.loss} loss: {loss}")
             
 
 
@@ -143,8 +189,14 @@ class Sequential:
                 layer.W -= learning_rate*layer.dW
                 layer.b -= learning_rate*layer.db
             
+    def predict(self, X):
+        X = X.T 
+        for layer in self.layers:
+            X = layer.forward_prop(X)
 
-        
+        return X
+
+
         
 
 
