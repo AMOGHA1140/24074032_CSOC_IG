@@ -1,4 +1,5 @@
 import typing
+import time
 import numpy as np
 
 """
@@ -17,7 +18,7 @@ Batch Normalization?
 
 
 def sparse_categorical_cross_entropy_loss(y_predicted, y_true):
-    assert y_predicted.shape == y_true.shape
+    assert y_predicted.shape == y_true.shape, f"Found shape, y_predicted: {y_predicted.shape}, y_true:{y_true.shape}"
 
     n, m = y_true.shape #the output units, batch_size respectively
 
@@ -46,6 +47,8 @@ def mean_squared_loss(y_predicted, y_true):
 
 def accuracy(y_predicted, y_true):
 
+    #input assumes y_pred.shape = (training examples, number of outputs)
+
     
     if (y_predicted.shape!=y_true.shape):
         raise IndexError(f"y_predicted.shape: {y_predicted.shape}, y_true: {y_true.shape}")
@@ -54,7 +57,18 @@ def accuracy(y_predicted, y_true):
     #     return np.mean(y_true==y_predicted, axis=1)
     
     return np.mean(np.all(y_true==y_predicted, axis=1))
-    
+
+
+def calculate_loss(A, y, loss_type):
+
+    if loss_type == "binary_cross_entropy":
+        return binary_cross_entropy_loss(A, y)
+    elif (loss_type == "mse") or (loss_type == 'mean_squared_error'):
+        return mean_squared_loss(A, y)
+    elif (loss_type=="sparse_categorical_cross_entropy"):
+        return sparse_categorical_cross_entropy_loss(A, y)
+    else:
+        raise NotImplementedError(f"Didn't implement loss type: {loss_type}")
 
         
 
@@ -164,6 +178,9 @@ class Sequential:
         # self.batch_size = batch_size
         # self.epochs=epochs
         self.loss = loss
+
+        
+
     
     def build(self, input_size):
         """
@@ -179,7 +196,7 @@ class Sequential:
             self.layers[i+1].build(self.layers[i].units)
             self.layers[i+1].built=True
     
-    def fit(self, X, y, batch_size=32, epochs=10, learning_rate=1e-3):
+    def fit(self, X, y, batch_size=32, epochs=10, learning_rate=1e-3, metrics=[], random_state=42):
 
         if (X.shape[0]!=y.shape[0]):
             raise ValueError(f"Training rows and labelled rows not same. X.shape[0]={X.shape[0]}, y.shape={y.shape}")
@@ -193,6 +210,8 @@ class Sequential:
         # if the weights are not initialized, this initializes them
         if not self.layers[0].built:
             self.build(X.shape[1])
+        
+        
 
         # this is necessary because it is assumed that in input, each data point is arranged row-wise,
         # like in an excel sheet. But the neural network assumes that, number of rows = number of units,
@@ -200,62 +219,82 @@ class Sequential:
         X = X.T
         y = y.T
 
-        #currently ignoring batch_size 
+        N, M = X.shape #features, training examples
 
-        for i in range(epochs):
-
-            A = X
-            for layer in self.layers:
-                A = layer.forward_prop(A)
+    
 
 
-            temp = np.zeros_like(A)
-            temp[np.argmax(A, axis=0), np.arange(0, A.shape[1])] = True
+        for epoch_num in range(epochs):
 
-            accuracy_ = accuracy((temp).T, y.T)
+            permutation = np.random.permutation(M)
+            X_shuffled = X[:, permutation]
+            y_shuffled = y[:, permutation]
             
-            if self.loss == "binary_cross_entropy":
-                loss = binary_cross_entropy_loss(A, y)
-            elif (self.loss == "mse") or (self.loss == 'mean_squared_error'):
-                loss = mean_squared_loss(A, y)
-            elif (self.loss=="sparse_categorical_cross_entropy"):
-                loss = sparse_categorical_cross_entropy_loss(A, y)
-            else:
-                raise NotImplementedError(f"Didn't implement loss type: {self.loss}")
+            start = time.time()
 
-            # if (i%10==0):
-            print(f"Epoch: {i+1}, Accuracy: {accuracy_}, {self.loss} loss: {loss}")
+            for batch_number in range(0, M, batch_size):
+                x_batch = X_shuffled[:, batch_number:batch_number+batch_size]
+                y_batch = y_shuffled[:, batch_number:batch_number+batch_size]
+
+
+                A = x_batch
+                for layer in self.layers:
+                    A = layer.forward_prop(A)
+
+
+                temp = np.zeros_like(A) #this is for measuing accuracy. predicting the class from final outputs
+                temp[np.argmax(A, axis=0), np.arange(0, A.shape[1])] = True
+
+                accuracy_ = accuracy((temp).T, y_batch.T)
             
+                loss = calculate_loss(A, y_batch, self.loss)
 
-
-
-            if (self.loss == 'binary_cross_entropy'):
-                dA = (A-y)/(A+1e-9)/(1-A+1e-9)
-            elif (self.loss == "mse") or (self.loss == 'mean_squared_error'):
-
-
-
-                raise NotImplementedError
-                dA = 0 
-            elif (self.loss=='sparse_categorical_cross_entropy'):
-                dA = A-y
-            else:
-                raise NotImplementedError(f"{self.loss} is not implemented yet")
+                # print(f"Epoch: {i+1}, batch_number: {batch_number//batch_size+1}, Accuracy: {accuracy_}, {self.loss} loss: {loss}")
             
 
-            for i in range(len(self.layers)):
-                dA = self.layers[len(self.layers)-i-1].back_prop(dA)
+
+
+                if (self.loss == 'binary_cross_entropy'):
+                    dA = (A-y_batch)/(A+1e-9)/(1-A+1e-9)
+                elif (self.loss == "mse") or (self.loss == 'mean_squared_error'):
+                    raise NotImplementedError
+                    dA = 0 
+                elif (self.loss=='sparse_categorical_cross_entropy'):
+                    dA = A-y_batch
+                else:
+                    raise NotImplementedError(f"{self.loss} is not implemented yet")
+
+
+                for i in range(len(self.layers)):
+                    dA = self.layers[len(self.layers)-i-1].back_prop(dA)
+
+                for layer in self.layers:
+                    layer.W -= learning_rate*layer.dW
+                    layer.b -= learning_rate*layer.db
             
-            for layer in self.layers:
-                layer.W -= learning_rate*layer.dW
-                layer.b -= learning_rate*layer.db
+            
+            print(f"Epoch: {epoch_num+1}, time taken: {time.time()-start}")
+
+            # A = self.predict(X.T).T
+            # temp = np.zeros_like(A) #this is for measuing accuracy. predicting the class from final outputs
+            # temp[np.argmax(A, axis=0), np.arange(0, A.shape[1])] = True
+            # accuracy_ = accuracy((temp).T, y.T)
+            # loss = calculate_loss(A, y, self.loss)
+            
+            # print(f"Epoch: {epoch_num+1}, Accuracy: {accuracy_}, {self.loss} loss: {loss}")
+
+            
             
     def predict(self, X):
+
+        #it is assumed as X.shape = (examples, number_of_features)
+
         X = X.T 
         for layer in self.layers:
             X = layer.forward_prop(X)
 
-        return X.T
+        return X.T #output (examples, number_of_output)
+        
 
 
         
