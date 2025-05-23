@@ -53,8 +53,10 @@ def accuracy(y_predicted, y_true):
     if (y_predicted.shape!=y_true.shape):
         raise IndexError(f"y_predicted.shape: {y_predicted.shape}, y_true: {y_true.shape}")
     
-    # if (y_true.shape[1]==1):
-    #     return np.mean(y_true==y_predicted, axis=1)
+
+    
+    if (y_true.shape[1]==1):
+        return np.mean(y_true==y_predicted)
     
     return np.mean(np.all(y_true==y_predicted, axis=1))
 
@@ -196,16 +198,24 @@ class Sequential:
             self.layers[i+1].build(self.layers[i].units)
             self.layers[i+1].built=True
     
-    def fit(self, X, y, batch_size=32, epochs=10, learning_rate=1e-3, metrics=[], random_state=42):
+    def fit(self, X, y, batch_size=32, epochs=10, learning_rate=1e-3, metrics=[], random_state=42, X_test=None, y_test=None):
 
         if (X.shape[0]!=y.shape[0]):
-            raise ValueError(f"Training rows and labelled rows not same. X.shape[0]={X.shape[0]}, y.shape={y.shape}")
-
-        #there is only 1 output for each input, assuming binary classficiation type
-        # this has to be removed (or replaced by seperate validation if needed) when 
-        # performing regression task, or multi-label or multi-class classficiation
+            raise ValueError(f"Training rows and labelled rows not same. X.shape[0]={X.shape[0]}, y.shape={y.shape}")        
         if (y.shape[1]!=1 and self.loss=='binary_crossentropy'):
             raise ValueError(f"expected y.shape[1] to be 1 but found { y.shape[1]}")
+        
+        if (X_test is None)^(y_test is None):
+            raise ValueError(f"{'X_test' if X_test is None else 'y_test'} is None while the other is provided")
+        if (X_test is not None and y_test is not None) and (X_test.shape[0]!=y_test.shape[0]):
+            raise ValueError(f"number of rows in X_test and y_test not same. X_test.shape={X_test.shape}, y_test.shape={y_test.shape}")
+        
+        if (X_test is not None):
+            X_test = X_test.T
+            y_test=y_test.T
+        
+        
+        
         
         # if the weights are not initialized, this initializes them
         if not self.layers[0].built:
@@ -221,7 +231,10 @@ class Sequential:
 
         N, M = X.shape #features, training examples
 
-    
+        test_accuracy = []
+        train_accuracy = []
+        test_loss = []
+        train_loss = []
 
 
         for epoch_num in range(epochs):
@@ -231,23 +244,30 @@ class Sequential:
             y_shuffled = y[:, permutation]
             
             start = time.time()
+            epoch_training_loss_=[]
+            epoch_training_accuracy_ = []
 
             for batch_number in range(0, M, batch_size):
                 x_batch = X_shuffled[:, batch_number:batch_number+batch_size]
                 y_batch = y_shuffled[:, batch_number:batch_number+batch_size]
 
+                
 
                 A = x_batch
                 for layer in self.layers:
                     A = layer.forward_prop(A)
 
-
-                temp = np.zeros_like(A) #this is for measuing accuracy. predicting the class from final outputs
-                temp[np.argmax(A, axis=0), np.arange(0, A.shape[1])] = True
+                temp=0
+                if (self.loss=='binary_cross_entropy'):
+                    temp = A>0.5
+                else:
+                    temp = np.zeros_like(A) #this is for measuing accuracy. predicting the class from final outputs
+                    temp[np.argmax(A, axis=0), np.arange(0, A.shape[1])] = True
 
                 accuracy_ = accuracy((temp).T, y_batch.T)
-            
                 loss = calculate_loss(A, y_batch, self.loss)
+                epoch_training_accuracy_.append(accuracy_)
+                epoch_training_loss_.append(loss)
 
                 # print(f"Epoch: {i+1}, batch_number: {batch_number//batch_size+1}, Accuracy: {accuracy_}, {self.loss} loss: {loss}")
             
@@ -272,16 +292,32 @@ class Sequential:
                     layer.W -= learning_rate*layer.dW
                     layer.b -= learning_rate*layer.db
             
-            
-            print(f"Epoch: {epoch_num+1}, time taken: {time.time()-start}")
+            train_loss.append(np.mean(epoch_training_loss_))
+            train_accuracy.append(np.mean(epoch_training_accuracy_))
 
-            # A = self.predict(X.T).T
-            # temp = np.zeros_like(A) #this is for measuing accuracy. predicting the class from final outputs
-            # temp[np.argmax(A, axis=0), np.arange(0, A.shape[1])] = True
-            # accuracy_ = accuracy((temp).T, y.T)
-            # loss = calculate_loss(A, y, self.loss)
+            print(f"Epoch: {epoch_num+1}, time taken: {time.time()-start}, accuracy={train_accuracy[-1]}, {self.loss} loss={train_loss[-1]}")
+
+
+
+            if X_test is not None:
+                A = self.predict(X_test.T).T
+                temp=0
+
+                if (self.loss=='binary_cross_entropy'):
+                    temp = A>0.5
+                else:
+                    temp = np.zeros_like(A) #this is for measuring accuracy. predicting the class from final outputs
+                    temp[np.argmax(A, axis=0), np.arange(0, A.shape[1])] = True #this sets the max value in each example to true, others to false
+                accuracy_ = accuracy((temp).T, y_test.T) 
+                loss = calculate_loss(A, y_test, self.loss)
+
+                test_accuracy.append(accuracy_)
+                test_loss.append(loss)
+
+                # print(f", {self.loss} loss: {loss}, Accuracy: {accuracy_}")
             
-            # print(f"Epoch: {epoch_num+1}, Accuracy: {accuracy_}, {self.loss} loss: {loss}")
+            
+        return (train_loss, train_accuracy), (test_loss, test_accuracy)
 
             
             
@@ -295,14 +331,3 @@ class Sequential:
 
         return X.T #output (examples, number_of_output)
         
-
-
-        
-
-
-
-
-
-
-
-
