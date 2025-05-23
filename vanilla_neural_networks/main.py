@@ -1,6 +1,20 @@
 import typing
 import numpy as np
 
+"""
+To be implemented
+
+
+Batch gradient descent (most imp, probably the only one I will be able to implement and test)
+
+regularizers (L2, dropout)
+
+
+Momentum, RMSprop, Adam optimizers
+
+Batch Normalization? 
+"""
+
 
 def sparse_categorical_cross_entropy_loss(y_predicted, y_true):
     assert y_predicted.shape == y_true.shape
