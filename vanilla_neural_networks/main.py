@@ -12,7 +12,7 @@ Batch gradient descent (most imp, probably the only one I will be able to implem
 regularizers (L2, dropout)
 
 
-Momentum, RMSprop, Adam optimizers
+Momentum, RMSprop, Adam optimizers (done)
 
 Batch Normalization? 
 """
@@ -52,7 +52,7 @@ def calculate_precision(y_predicted, y_true):
     TP = np.sum((y_predicted==True) & (y_true==True))
     FP = np.sum((y_predicted==True) & (y_true==False))
 
-    return (TP)/(TP+FP)
+    return (TP)/(TP+FP+1e-9)
 
 def calculate_recall(y_predicted, y_true):
 
@@ -162,8 +162,20 @@ class SGD:
         for layer in network.layers:
             layer.W -= self.learning_rate*layer.dW
             layer.b -= self.learning_rate * layer.db
-        
-        
+
+
+class L2Regularizer:
+
+    def __init__(self, lambda_=0.01):
+        self.lambda_ = lambda_
+    
+    def calculate_loss(self, layer):
+
+        return 0.5 * self.lambda_ * np.sum(np.square(layer.W))
+    
+    def calculate_gradient(self, layer):
+
+        return self.lambda_ * layer.W
         
 
 
@@ -189,10 +201,11 @@ class InputLayer:
 
 class Dense:
     
-    def __init__(self, units, activation='relu'):
+    def __init__(self, units, activation='relu', regularizer=None):
         
         self.built=False #this is to track that the weights are not initialized
         self.units = units
+        self.regularizer=regularizer
         
         if activation not in ['relu', 'softmax', 'sigmoid']:
             raise NotImplementedError(f"Activation type: {activation} not implemented")
@@ -250,6 +263,9 @@ class Dense:
 
         m = dA.shape[1] #batch size basically
         self.dW = np.matmul(dZ, self.A_prev.T)/m
+
+        if (self.regularizer is not None):
+            self.dW += self.regularizer.calculate_gradient(self)
 
         dA_prev = np.matmul(self.W.T, dZ)
 
@@ -370,6 +386,10 @@ class Sequential:
 
                 accuracy_ = accuracy((temp).T, y_batch.T)
                 loss = calculate_loss(A, y_batch, self.loss)
+                for layer in self.layers:
+                    if layer.regularizer is not None:
+                        loss += layer.regularizer.calculate_loss(layer)
+
                 epoch_training_accuracy_.append(accuracy_)
                 epoch_training_loss_.append(loss)
 
