@@ -109,8 +109,10 @@ class Adam:
         self.learning_rate=learning_rate
         
         for layer in network.layers:
-            layer.Sdw = layer.Vdw = np.zeros_like(layer.W)
-            layer.Sdb =layer.Vdb = np.zeros_like(layer.b)
+            layer.Sdw = np.zeros_like(layer.W)
+            layer.Vdw = np.zeros_like(layer.W)
+            layer.Sdb = np.zeros_like(layer.b)
+            layer.Vdb = np.zeros_like(layer.b)
 
     def gradient_descent(self, network):
 
@@ -122,8 +124,8 @@ class Adam:
             layer.Sdw = (self.beta2 * layer.Sdw + (1-self.beta2)*np.square(layer.dW))#/(1-self.beta2**self.iteration)
             layer.Sdb = (self.beta2 * layer.Sdb + (1-self.beta2)*np.square(layer.db))#/(1-self.beta2**self.iteration)
 
-            layer.W -= self.learning_rate* layer.Vdw / np.sqrt(layer.Sdw + 1e-9) * np.sqrt(1-self.beta2**self.iteration)/(1-self.beta1**self.iteration)
-            layer.b -= self.learning_rate* layer.Vdb / np.sqrt(layer.Sdb + 1e-9) * np.sqrt(1-self.beta2**self.iteration)/(1-self.beta1**self.iteration)
+            layer.W -= self.learning_rate* layer.Vdw / (np.sqrt(layer.Sdw) + 1e-8) * np.sqrt(1-self.beta2**self.iteration)/(1-self.beta1**self.iteration)
+            layer.b -= self.learning_rate* layer.Vdb / (np.sqrt(layer.Sdb) + 1e-8) * np.sqrt(1-self.beta2**self.iteration)/(1-self.beta1**self.iteration)
 
         self.iteration+=1
 
