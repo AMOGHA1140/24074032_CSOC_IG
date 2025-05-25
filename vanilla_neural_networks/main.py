@@ -198,6 +198,40 @@ class InputLayer:
         pass
 
 
+class Dropout:
+
+    def __init__(self, keep_prob):
+        if (keep_prob >= 1.0):
+            raise ValueError(f"keep_prob must be strictly less than 1, got {keep_prob}")
+        
+        self.regularizer = None
+        self.activation = None
+        self.W = self.b = 0
+        self.keep_prob = keep_prob
+
+    def forward_prop(self, a_prev, is_training=False):
+
+        if (not is_training):
+            return a_prev
+
+        self.D = (np.random.rand(*a_prev.shape) < self.keep_prob).astype(float)
+        self.A = self.D * a_prev / self.keep_prob
+        return self.A
+    
+    def back_prop(self, dA):
+
+        self.dW = self.db = 0
+
+        dA_prev = dA*self.D / self.keep_prob
+
+        return dA_prev
+    
+    def build(self, input_shape):
+        self.units = self.prev_layer.units
+        self.input_shape = input_shape
+
+
+
 
 
 
@@ -226,7 +260,7 @@ class Dense:
         self.b = np.zeros((self.units, 1))
         self.built=True
 
-    def forward_prop(self, a_prev):
+    def forward_prop(self, a_prev, is_training=False):
 
         z = np.matmul(self.W, a_prev) + self.b
         
@@ -315,6 +349,7 @@ class Sequential:
         self.layers[0].built=True
 
         for i in range(len(self.layers)-1):
+            self.layers[i+1].prev_layer = self.layers[i]
             self.layers[i+1].build(self.layers[i].units)
             self.layers[i+1].built=True
     
@@ -377,7 +412,7 @@ class Sequential:
 
                 A = x_batch
                 for layer in self.layers:
-                    A = layer.forward_prop(A)
+                    A = layer.forward_prop(A, True)
 
                 temp=0
                 if (self.loss=='binary_cross_entropy'):
