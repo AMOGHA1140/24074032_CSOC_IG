@@ -1,6 +1,11 @@
 __pycache__/
-*.pyc
 .env
 .ipynb_checkpoints/
 vanilla_neural_networks/Artificial_Neural_Networks.pdf
+GradCam/dataset/*
+GradCam/data/*
+*.pyc
 *.zip
+*.gz
+*.pth
+*.txt
