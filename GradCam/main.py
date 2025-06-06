@@ -17,13 +17,16 @@ def print_test_details(model:nn.Module, loss, test_loader:torch.utils.data.DataL
     top_1_correct = 0
     top_5_correct = 0
     total_loss = 0
-    num_original_samples =0
-
     
+
+    i = 0
     for test_features_batch, test_labels_batch in iter(test_loader):
+        i+=1
+        if (i%100)==0:
+            print(i)
 
 
-        original_image_label = test_labels_batch[0].to(device)
+        # original_image_label = test_labels_batch[0].to(device)
         num_current_original_samples = test_labels_batch.size(0)
 
         bs, n_crops, c, h, w = test_features_batch.shape
@@ -43,7 +46,7 @@ def print_test_details(model:nn.Module, loss, test_loader:torch.utils.data.DataL
         top_1_correct += top_k_accuracy_score(cpu_labels, cpu_averaged_outputs, k=1, labels=all_possible_labels, normalize=False)
         top_5_correct += top_k_accuracy_score(cpu_labels, cpu_averaged_outputs, k=5, labels=all_possible_labels, normalize=False)
             
-        num_original_samples += num_current_original_samples
+        
 
 
     top_1_accuracy = top_1_correct/len(test_loader.dataset)

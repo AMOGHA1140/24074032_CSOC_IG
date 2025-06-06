@@ -10,5 +10,5 @@
 
 `resnet28_self_implementation.ipynb` - implementing the architecture similar to resnet18, but using bottleneck layers instead of simple ones, same number of times as in resnet18. 
 
-
+`self_implementation_xception.ipynb` - implementing 5.9M parameter xception myself, and training on just caltech
 
