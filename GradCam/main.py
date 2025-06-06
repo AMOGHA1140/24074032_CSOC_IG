@@ -56,7 +56,7 @@ def print_test_details(model:nn.Module, loss, test_loader:torch.utils.data.DataL
 
 
 
-class DepthwiseConv2(nn.Module):
+class DepthwiseConv2D(nn.Module):
 
     def __init__(
             self,
@@ -124,7 +124,7 @@ def conv1x1(in_channels:int, out_channels:int, stride:int=1):
 
 def depthwise_conv3x3(in_channels:int, out_channels:int, stride:int=1, padding:int=1):
 
-    return DepthwiseConv2(
+    return DepthwiseConv2D(
         in_channels=in_channels,
         out_channels=out_channels,
         kernel_size=3,
@@ -132,6 +132,8 @@ def depthwise_conv3x3(in_channels:int, out_channels:int, stride:int=1, padding:i
         padding=padding,
         bias=False
     )
+
+
 
 
 class BasicBlock(nn.Module):
