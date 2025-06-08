@@ -1,12 +1,53 @@
+# %% [code]
 
 import torch
 import torch.nn as nn
+from torchvision import transforms
 
 from sklearn.metrics import top_k_accuracy_score
 import numpy as np
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+
+
+xception_train_transform = transforms.Compose([
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomAffine(degrees=15, translate= (.15, .15), scale = (0.85, 1.15)),
+
+    transforms.Resize(324), #Resize data to be 224x224.
+    transforms.RandomCrop(299),
+    transforms.ToTensor(),
+    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+])
+
+xception_test_transform = transforms.Compose([
+    transforms.Resize((324, 324)),
+    transforms.TenCrop((299, 299)),
+    transforms.Lambda(lambda crops: torch.stack([transforms.ToTensor()(crop) for crop in crops])),
+    transforms.Lambda(lambda crops: torch.stack([transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))(x) for x in crops]))
+    ])
+
+train_transform = xception_train_transform
+test_transform = xception_test_transform
+
+resnet_train_transform = transforms.Compose([
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomAffine(degrees=15, translate= (.15, .15), scale = (0.85, 1.15)),
+
+    transforms.Resize(256), #Resize data to be 224x224.
+    transforms.RandomCrop(224),
+    transforms.ToTensor(),
+    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+])
+
+
+resnet_test_transform = transforms.Compose([
+    transforms.Resize((256, 256)),
+    transforms.TenCrop((224, 224)),
+    transforms.Lambda(lambda crops: torch.stack([transforms.ToTensor()(crop) for crop in crops])),
+    transforms.Lambda(lambda crops: torch.stack([transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))(x) for x in crops]))
+    ])
 
 
 @torch.no_grad()
@@ -59,49 +100,7 @@ def print_test_details(model:nn.Module, loss, test_loader:torch.utils.data.DataL
 
 
 
-class DepthwiseConv2D(nn.Module):
-
-    def __init__(
-            self,
-            in_channels:int,
-            out_channels:int,
-            kernel_size:int,
-            stride:int=1,
-            padding:int = 0,
-            bias:bool = True,
-
-    ):
-        super().__init__()
-        
-        self.depthwise_layer = nn.Conv2d(
-            in_channels=in_channels,
-            out_channels=in_channels,
-            kernel_size=kernel_size,
-            stride=stride,
-            padding=padding,
-            groups=in_channels,
-            bias=bias
-        )
-        self.pointwise_layer = nn.Conv2d(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=1,
-            stride=1,
-            padding=0,
-            groups=1,
-            bias=bias
-        )
-        
-        
-
-    def forward(self, X):
-        
-        output = self.depthwise_layer(X)
-        output = self.pointwise_layer(output)
-        return output
-
-
-
+## FUNCTION FOR RESNET
 
 def conv3x3(in_channels:int, out_channels:int, stride:int=1, padding:int=1):
     return nn.Conv2d(
@@ -120,19 +119,6 @@ def conv1x1(in_channels:int, out_channels:int, stride:int=1):
         kernel_size=1,
         padding=0,
         stride=stride,
-        bias=False
-    )
-
-
-
-def depthwise_conv3x3(in_channels:int, out_channels:int, stride:int=1, padding:int=1):
-
-    return DepthwiseConv2D(
-        in_channels=in_channels,
-        out_channels=out_channels,
-        kernel_size=3,
-        stride=stride, 
-        padding=padding,
         bias=False
     )
 
@@ -251,6 +237,7 @@ class ResNet(nn.Module):
         block,
         layers,
         num_classes: int = 256,
+        dropout:float=0.
     ) -> None:
         
         super().__init__()
@@ -266,8 +253,11 @@ class ResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.dropout = nn.Dropout(p=dropout)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        
         self.fc = nn.Linear(512 * block.expansion, num_classes)
+
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -316,10 +306,231 @@ class ResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
+        x = self.dropout(x)
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.fc(x)
 
         return x
 
+
+
+## FUNCTIONS FOR XCEPTION 
+
+class BNConv2D(nn.Module):
+
+    def __init__(
+            self,
+            in_channels: int,
+            out_channels: int,
+            kernel_size: int,
+            stride = 1,
+            padding= 0,
+            dilation=1,
+            groups=1,
+    ):
+        super().__init__()
+
+        self.conv = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            bias=False
+        )
+        self.bn = nn.BatchNorm2d(out_channels)
+
+
+    def forward(self, X):
+        
+        out = self.conv(X)
+        out = self.bn(out)
+
+        return out
     
+class BN_DepthwiseSeparableConv2D(nn.Module):
+
+    def __init__(
+            self,
+            in_channels: int,
+            out_channels: int,
+            kernel_size: int,
+            stride = 1,
+            padding= 0,
+            dilation=1,
+    ):
+        super().__init__()
+
+        self.depthwise_conv = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=in_channels, 
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=in_channels,
+            bias=False
+        )
+        self.pointwise_conv = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=1,
+            bias=False
+        )
+        self.bn = nn.BatchNorm2d(out_channels)
+    
+    def forward(self, X):
+
+        out = self.depthwise_conv(X)
+        out = self.pointwise_conv(out)
+        out = self.bn(out)
+
+        return out
+
+class MiddleFlow(nn.Module):
+
+    def __init__(self, channels:int=512):
+        super().__init__()
+
+        self.flow = nn.Sequential(
+            nn.ReLU(), BN_DepthwiseSeparableConv2D(channels, channels, 3, 1, 1),
+            nn.ReLU(), BN_DepthwiseSeparableConv2D(channels, channels, 3, 1, 1),
+            nn.ReLU(), BN_DepthwiseSeparableConv2D(channels, channels, 3, 1, 1)
+        )
+
+    def forward(self, X):
+
+        out = self.flow(X)
+        out += X
+        return out
+
+class Xception(nn.Module):
+    """
+    [paper](https://arxiv.org/pdf/1610.02357) from where this is implemented
+    """
+
+    def __init__(self, num_middle_layers:int=3, dropout:float=0.):
+        super().__init__()
+
+
+        ## ENTRY FLOW
+        self.block1_conv1 = BN_DepthwiseSeparableConv2D(in_channels=3, out_channels=32, stride=2, kernel_size=3)
+        self.block1_conv2 = BN_DepthwiseSeparableConv2D(in_channels=32, out_channels=64, kernel_size=3)
+        
+
+        self.residual1 = BNConv2D(in_channels=64, out_channels=128, kernel_size=1, padding=0, stride=2)
+        self.residual2 = BNConv2D(in_channels=128, out_channels=256, kernel_size=1, padding=0, stride=2)
+        self.residual3 = BNConv2D(in_channels=256, out_channels=512, kernel_size=1, padding=0, stride=2)
+
+
+        self.block2_conv1 = BN_DepthwiseSeparableConv2D(in_channels=64, out_channels=128, kernel_size=3, padding=1)
+        self.block2_conv2 = BN_DepthwiseSeparableConv2D(in_channels=128, out_channels=128, kernel_size=3, padding=1)
+        
+
+        self.block3_conv1 = BN_DepthwiseSeparableConv2D(in_channels=128, out_channels=256, kernel_size=3, padding=1)
+        self.block3_conv2 = BN_DepthwiseSeparableConv2D(in_channels=256, out_channels=256, kernel_size=3, padding=1)
+
+        self.block4_conv1 = BN_DepthwiseSeparableConv2D(in_channels=256, out_channels=256, kernel_size=3, padding=1)
+        self.block4_conv2 = BN_DepthwiseSeparableConv2D(in_channels=256, out_channels=512, kernel_size=3, padding=1)
+
+
+        
+        ## MIDDLE FLOW
+        channels = 512
+
+        self.middle_layers = nn.ModuleList()
+
+        for _ in range(num_middle_layers):
+            
+            self.middle_layers.append(MiddleFlow(channels=channels))
+
+
+        ## EXIT FLOW
+
+
+        self.exitblock1_conv1 = BN_DepthwiseSeparableConv2D(channels, 728, 3, padding=1)
+        self.exitblock1_conv2 = BN_DepthwiseSeparableConv2D(728, 1024, 3, padding=1)
+
+
+
+
+
+        self.last = nn.Linear(1024, 256)
+        
+
+        
+        self.global_avgpool = nn.AdaptiveAvgPool2d(1)
+        self.max_pooling = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.relu = nn.ReLU()
+
+        self.dropout = nn.Dropout(p=dropout)
+
+
+    def forward(self, X):
+
+        #block 1
+        out = self.block1_conv1(X)
+        out = self.relu(out)
+        out = self.block1_conv2(out)
+        out = self.relu(out)
+        
+        #block 2
+        residual = self.residual1(out)
+
+        out = self.block2_conv1(out)
+        out = self.relu(out)
+        out = self.block2_conv2(out)
+        out = self.max_pooling(out)
+
+        out += residual
+        
+        #block 3
+        residual = self.residual2(out)
+
+        out = self.relu(out)
+        out = self.block3_conv1(out)
+        out = self.relu(out)
+        out = self.block3_conv2(out)
+        out = self.max_pooling(out)
+
+        out += residual
+
+        #block 4
+        residual = self.residual3(out)
+
+        out = self.relu(out)
+        out = self.block4_conv1(out)
+        out = self.relu(out)
+        out = self.block4_conv2(out)
+        out = self.max_pooling(out)
+
+        out += residual
+
+        #middle flow
+        for layer in self.middle_layers:
+            residual = out
+            out = layer(out)            
+            out += residual
+
+
+        ## EXIT flow
+        out = self.exitblock1_conv1(out)
+        out = self.exitblock1_conv2(out)
+        out = self.global_avgpool(out)
+
+        out = torch.flatten(out, 1)
+
+        out = self.dropout(out)
+        out = self.last(out)
+
+
+        
+
+
+
+        return out
+
+        
