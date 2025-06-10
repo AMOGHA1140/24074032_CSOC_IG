@@ -9,3 +9,5 @@ GradCam/data/*
 *.gz
 *.pth
 *.txt
+*.png
+*.jpg
