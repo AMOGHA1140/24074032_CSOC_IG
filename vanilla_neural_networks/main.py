@@ -2,14 +2,17 @@ import typing
 import time
 import numpy as np
 
+"""
+This library does not make use of autograd.
+"""
 
 """
 To be implemented
 
 
-Batch gradient descent (most imp, probably the only one I will be able to implement and test)
+Batch gradient descent (done)
 
-regularizers (L2, dropout)
+regularizers (L2, dropout) - (done)
 
 
 Momentum, RMSprop, Adam optimizers (done)
